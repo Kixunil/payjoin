@@ -3,12 +3,12 @@
 mod integration {
     use bitcoind::bitcoincore_rpc::RpcApi;
     use bitcoind::bitcoincore_rpc;
-    use bitcoin::Amount;
+    use bitcoin::{Amount, util::psbt::serialize::Serialize, hashes::hex::ToHex, AddressType};
     use bip78::Uri;
-    use std::str::FromStr;
     use bitcoin::util::psbt::PartiallySignedTransaction as Psbt;
     use log::{debug, log_enabled, Level};
-    use std::collections::HashMap;
+    use std::{collections::HashMap, convert::TryFrom};
+
     use bip78::receiver::Headers;
     use bip78::receiver::test_util::MockHeaders;
 
@@ -23,9 +23,9 @@ mod integration {
         conf.view_stdout = log_enabled!(Level::Debug);
         let bitcoind = bitcoind::BitcoinD::with_conf(bitcoind_exe, &conf).unwrap();
         let receiver = bitcoind.create_wallet("receiver").unwrap();
-        let receiver_address = receiver.get_new_address(None, None).unwrap();
+        let receiver_address = receiver.get_new_address(None, AddressType::P2wpkh).unwrap();
         let sender = bitcoind.create_wallet("sender").unwrap();
-        let sender_address = sender.get_new_address(None, None).unwrap();
+        let sender_address = sender.get_new_address(None, AddressType::P2wpkh).unwrap();
         bitcoind.client.generate_to_address(1, &receiver_address).unwrap();
         bitcoind.client.generate_to_address(101, &sender_address).unwrap();
 
@@ -41,12 +41,14 @@ mod integration {
             "sender doesn't own bitcoin"
         );
 
+        // *****************************************
         // Receiver creates the payjoin URI
         let pj_receiver_address = receiver.get_new_address(None, None).unwrap();
         let amount = Amount::from_btc(1.0).unwrap();
         let pj_uri_string = format!("{}?amount={}&pj=https://example.com", pj_receiver_address.to_qr_uri(), amount.as_btc());
-        let pj_uri = Uri::from_str(&pj_uri_string).unwrap();
+        let pj_uri = bip78::Uri::try_from(&pj_uri_string);
 
+        // ******************************************
         // Sender create a funded PSBT (not broadcasted) to address with amount given in the pj_uri
         let mut outputs = HashMap::with_capacity(1);
         outputs.insert(pj_uri.address().to_string(), pj_uri.amount().unwrap());
@@ -73,10 +75,65 @@ mod integration {
         let (req, ctx) = pj_uri.create_request(psbt, pj_params).unwrap();
         let headers = MockHeaders::from_vec(&req.body);
 
+        // **************************
         // Receiver receive payjoin proposal, IRL it will be an HTTP request (over ssl or onion)
         let proposal = bip78::receiver::UncheckedProposal::from_request(req.body.as_slice(), "", headers).unwrap();
+        
+        // Receive Check 1: Is Broadcastable
+        let tx = proposal.get_transaction_to_check_broadcast();
+        let tx_is_broadcastable = bitcoind.client.test_mempool_accept(&[bitcoin::consensus::encode::serialize(&tx).to_hex()]).unwrap().first().unwrap().allowed;
+        assert!(tx_is_broadcastable);
+        
+        // TODO Receive Check 2, 3, 4, Other OriginalPSBT Checks
 
-        // TODO
+        let unlocked = proposal.assume_broadcastability_was_verified();
+
+        // Select receiver payjoin inputs. Lock them.
+        let receiver_coin = receiver.list_unspent(None, None, None, Some(false), None).unwrap().first().unwrap();
+        // TODO Select to avoid Unecessary Input and other Heuristics.
+        // This Gist <https://gist.github.com/AdamISZ/4551b947789d3216bacfcb7af25e029e> explains how
+
+        // TODO In a payment processor, this is where one would defend against the failure case
+        // I'm not sure if we can take a callback as a param or we have to assume downstream does the check
+        // let scheduled = proposal.assume_original_broadcast_has_been_scheduled();
+
+        // TODO calculate receiver payjoin outputs given receiver payjoin inputs and original_psbt, 
+        //      add sender additionalfee to our output
+        // TODO construct payjoin psbt
+        //      clone to new, unsigned psbt. FIXME error @ `unsigned_tx_checks()` because it's signed. Probably get psbt from proposal, clone it, then remove the unusable e.g. sigs, original_psbt.outputs and add replacements
+        let mut payjoin_psbt: Psbt = Psbt::from_unsigned_tx(tx).unwrap();
+        //      add receiver inputs
+        let payjoin_input = bitcoin::util::psbt::Input {
+             witness_utxo: Some(bitcoin::blockdata::transaction::TxOut {
+                value: receiver_coin.amount.as_sat(),
+                script_pubkey: receiver_coin.script_pub_key,
+            }),
+             ..Default::default() };
+
+        payjoin_psbt.inputs.push(payjoin_input);
+        //      add new_change, new_change.amount = original_psbt change's + receiver_inputs.amount() - sender additionalfees
+
+        // TODO Sign payjoin psbt
+        let payjoin_psbt = receiver
+        .wallet_process_psbt(&payjoin_psbt.to_string(), None, None, None)
+        .unwrap()
+        .psbt;
+        let payjoin_psbt = load_psbt_from_base64(payjoin_psbt.as_bytes()).unwrap();
+        debug!("Receiver's PayJoin PSBT: {:#?}", payjoin_psbt);
+
+        // return it to sender via http response *in your imagination*
+
+        // **********************
+        // Sender [TODO checks] signs, finalizes, extracts, and broadcasts
+        let payjoin_psbt = sender
+        .wallet_process_psbt(&payjoin_psbt.to_string(), None, None, None)
+        .unwrap()
+        .psbt;
+        let payjoin_psbt = load_psbt_from_base64(payjoin_psbt.as_bytes()).unwrap();
+        debug!("Sender's PayJoin PSBT: {:#?}", payjoin_psbt);
+
+        let payjoin_tx = payjoin_psbt.extract_tx();
+        bitcoind.client.send_raw_transaction(&payjoin_tx.serialize()).unwrap().first().unwrap();
     }
 
     fn load_psbt_from_base64(mut input: impl std::io::Read) -> Result<Psbt, bip78::bitcoin::consensus::encode::Error> {
@@ -85,4 +142,5 @@ mod integration {
         let reader = base64::read::DecoderReader::new(&mut input, base64::Config::new(base64::CharacterSet::Standard, true));
         Psbt::consensus_decode(reader)
     }
+    
 }
