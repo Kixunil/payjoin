@@ -214,32 +214,36 @@ pub struct NewOutputOptions {
     subtract_fees_from_this: bool,
 }
 
-mod test {
+pub mod test_util {
     use super::*;
+    use std::collections::HashMap;
 
-    struct MockHeaders {
-        length: String,
-    }
-
-    impl MockHeaders {
-        #[cfg(test)]
-        fn new(length: u64) -> MockHeaders {
-            MockHeaders { length: length.to_string() }
-        }
-    }
+    pub struct MockHeaders(HashMap<String, String>);
 
     impl Headers for MockHeaders {
         fn get_header(&self, key: &str) -> Option<&str> {
-            match key {
-                "content-length" => Some(&self.length),
-                "content-type" => Some("text/plain"),
-                _ => None,
-            }
+            self.0.get(key).map(|e| e.as_str())
         }
     }
 
+    impl MockHeaders {
+        pub fn from_vec(body: &[u8]) -> MockHeaders {
+            let mut h = HashMap::new();
+            h.insert("content-type".to_string(), "text/plain".to_string());
+            h.insert("content-length".to_string(), body.len().to_string());
+            MockHeaders(h)
+        }
+    }
+
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+
     #[cfg(test)]
     fn get_proposal_from_test_vector() -> Result<UncheckedProposal, RequestError> {
+        use super::test_util::MockHeaders;
 
         // OriginalPSBT Test Vector from BIP
         // | InputScriptType | Orginal PSBT Fee rate | maxadditionalfeecontribution | additionalfeeoutputindex|
@@ -248,7 +252,7 @@ mod test {
         let original_psbt = "cHNidP8BAHMCAAAAAY8nutGgJdyYGXWiBEb45Hoe9lWGbkxh/6bNiOJdCDuDAAAAAAD+////AtyVuAUAAAAAF6kUHehJ8GnSdBUOOv6ujXLrWmsJRDCHgIQeAAAAAAAXqRR3QJbbz0hnQ8IvQ0fptGn+votneofTAAAAAAEBIKgb1wUAAAAAF6kU3k4ekGHKWRNbA1rV5tR5kEVDVNCHAQcXFgAUx4pFclNVgo1WWAdN1SYNX8tphTABCGsCRzBEAiB8Q+A6dep+Rz92vhy26lT0AjZn4PRLi8Bf9qoB/CMk0wIgP/Rj2PWZ3gEjUkTlhDRNAQ0gXwTO7t9n+V14pZ6oljUBIQMVmsAaoNWHVMS02LfTSe0e388LNitPa1UQZyOihY+FFgABABYAFEb2Giu6c4KO5YW0pfw3lGp9jMUUAAA=";
 
         let body = original_psbt.as_bytes();
-        let headers = MockHeaders::new(body.len() as u64);
+        let headers =  MockHeaders::from_vec(body);
         UncheckedProposal::from_request(body, "", headers)
     }
 
