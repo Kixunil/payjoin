@@ -3,13 +3,12 @@
 mod integration {
     use bitcoind::bitcoincore_rpc::RpcApi;
     use bitcoind::bitcoincore_rpc;
-    use bitcoin::{Amount, util::psbt::serialize::Serialize, hashes::hex::ToHex, AddressType};
+    use bitcoin::{Amount, util::psbt::serialize::Serialize, hashes::hex::ToHex};
     use bip78::Uri;
     use bitcoin::util::psbt::PartiallySignedTransaction as Psbt;
     use log::{debug, log_enabled, Level};
-    use std::{collections::HashMap, convert::TryFrom};
+    use std::{collections::HashMap, str::FromStr};
 
-    use bip78::receiver::Headers;
     use bip78::receiver::test_util::MockHeaders;
 
     #[test]
@@ -23,9 +22,9 @@ mod integration {
         conf.view_stdout = log_enabled!(Level::Debug);
         let bitcoind = bitcoind::BitcoinD::with_conf(bitcoind_exe, &conf).unwrap();
         let receiver = bitcoind.create_wallet("receiver").unwrap();
-        let receiver_address = receiver.get_new_address(None, AddressType::P2wpkh).unwrap();
+        let receiver_address = receiver.get_new_address(None, None).unwrap();
         let sender = bitcoind.create_wallet("sender").unwrap();
-        let sender_address = sender.get_new_address(None, AddressType::P2wpkh).unwrap();
+        let sender_address = sender.get_new_address(None, None).unwrap();
         bitcoind.client.generate_to_address(1, &receiver_address).unwrap();
         bitcoind.client.generate_to_address(101, &sender_address).unwrap();
 
@@ -46,12 +45,13 @@ mod integration {
         let pj_receiver_address = receiver.get_new_address(None, None).unwrap();
         let amount = Amount::from_btc(1.0).unwrap();
         let pj_uri_string = format!("{}?amount={}&pj=https://example.com", pj_receiver_address.to_qr_uri(), amount.as_btc());
-        let pj_uri = bip78::Uri::try_from(&pj_uri_string);
+        let pj_uri = Uri::from_str(&pj_uri_string).unwrap();
+
 
         // ******************************************
         // Sender create a funded PSBT (not broadcasted) to address with amount given in the pj_uri
         let mut outputs = HashMap::with_capacity(1);
-        outputs.insert(pj_uri.address().to_string(), pj_uri.amount().unwrap());
+        outputs.insert(pj_uri.address.to_string(), pj_uri.amount.unwrap());
         debug!("outputs: {:?}", outputs);
         let options = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
             lock_unspent: Some(true),
