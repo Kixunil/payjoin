@@ -100,6 +100,7 @@ impl MaybeInputsOwned {
                 Err(e) => Err(e),
             }
         })
+    //pub fn script_pubkeys(&self) -> impl Iterator<Item=&Script> + '_ {
     }
 
     /// If the sender included inputs that the receiver could sign for in the original PSBT,
@@ -166,7 +167,7 @@ pub struct UnlockedProposal {
 
 impl UnlockedProposal {
     pub fn utxos_to_be_locked(&self) -> impl '_ + Iterator<Item=&bitcoin::OutPoint> {
-        self.psbt.global.unsigned_tx.input.iter().map(|input| &input.previous_output)
+        self.psbt.unsigned_tx.input.iter().map(|input| &input.previous_output)
     }
 
     pub fn assume_locked(self) -> Proposal {

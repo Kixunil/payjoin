@@ -39,20 +39,19 @@ impl Psbt {
     }
 
     pub fn xpub_mut(&mut self) -> &mut BTreeMap<bip32::ExtendedPubKey, (bip32::Fingerprint, bip32::DerivationPath)> {
-        &mut self.0.global.xpub
+        &mut self.0.xpub
     }
 
     pub fn proprietary_mut(&mut self) -> &mut BTreeMap<psbt::raw::ProprietaryKey, Vec<u8>> {
-        &mut self.0.global.proprietary
+        &mut self.0.proprietary
     }
 
     pub fn unknown_mut(&mut self) -> &mut BTreeMap<psbt::raw::Key, Vec<u8>> {
-        &mut self.0.global.unknown
+        &mut self.0.unknown
     }
 
     pub fn input_pairs(&self) -> impl Iterator<Item=InputPair<'_>> + '_ {
-        self.global
-            .unsigned_tx
+        self.unsigned_tx
             .input
             .iter()
             .zip(&self.inputs)
@@ -68,8 +67,8 @@ impl Psbt {
 
     // from unreleased rust-bitcoin 5afb0eaf40642bfda87f2681a650a919d43163a4
     pub fn iter_funding_utxos(&self) -> impl Iterator<Item = Result<&TxOut, PsbtError>> {
-        assert_eq!(self.0.inputs.len(), self.0.global.unsigned_tx.input.len());
-        self.0.global.unsigned_tx.input.iter().zip(&self.0.inputs).map(|(tx_input, psbt_input)| {
+        assert_eq!(self.0.inputs.len(), self.0.unsigned_tx.input.len());
+        self.0.unsigned_tx.input.iter().zip(&self.0.inputs).map(|(tx_input, psbt_input)| {
             match (&psbt_input.witness_utxo, &psbt_input.non_witness_utxo) {
                 (Some(witness_utxo), _) => Ok(witness_utxo),
                 (None, Some(non_witness_utxo)) => {
@@ -92,9 +91,9 @@ impl TryFrom<UncheckedPsbt> for Psbt {
     type Error = InconsistentPsbt;
 
     fn try_from(unchecked: UncheckedPsbt) -> Result<Self, Self::Error> {
-        let tx_ins = unchecked.global.unsigned_tx.input.len();
+        let tx_ins = unchecked.unsigned_tx.input.len();
         let psbt_ins = unchecked.inputs.len();
-        let tx_outs = unchecked.global.unsigned_tx.output.len();
+        let tx_outs = unchecked.unsigned_tx.output.len();
         let psbt_outs = unchecked.outputs.len();
 
         if psbt_ins != tx_ins {

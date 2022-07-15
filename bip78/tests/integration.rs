@@ -16,7 +16,7 @@ mod integration {
         let _ = env_logger::try_init();
         let bitcoind_exe = std::env::var("BITCOIND_EXE")
             .ok()
-            .or_else(|| bitcoind::downloaded_exe_path())
+            .or_else(|| bitcoind::downloaded_exe_path().ok())
             .expect("version feature or env BITCOIND_EXE is required for tests");
         let mut conf = bitcoind::Conf::default();
         conf.view_stdout = log_enabled!(Level::Debug);
@@ -133,7 +133,7 @@ mod integration {
         debug!("Sender's PayJoin PSBT: {:#?}", payjoin_psbt);
 
         let payjoin_tx = payjoin_psbt.extract_tx();
-        bitcoind.client.send_raw_transaction(&payjoin_tx.serialize()).unwrap().first().unwrap();
+        bitcoind.client.send_raw_transaction(&payjoin_tx).unwrap().first().unwrap();
     }
 
     fn load_psbt_from_base64(mut input: impl std::io::Read) -> Result<Psbt, bip78::bitcoin::consensus::encode::Error> {

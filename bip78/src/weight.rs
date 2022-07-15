@@ -78,13 +78,13 @@ mod inner {
     }
 }
 
-pub (crate) fn witness_weight(witness: &Vec<Vec<u8>>) -> Weight {
+pub (crate) fn witness_weight(witness: &bitcoin::Witness) -> Weight {
     if witness.is_empty() {
         return Weight::ZERO;
     }
     let mut size = varint_size(witness.len() as u64);
 
-    for item in witness {
+    for item in witness.iter() {
         size += varint_size(item.len() as u64) + item.len() as u64;
     }
 
