@@ -46,6 +46,14 @@ impl Mul<FeeRate> for u64 {
     }
 }
 
+impl Div<Weight> for FeeRate {
+    type Output = FeeRate;
+
+    fn div(self, rhs: Weight) -> Self::Output {
+        FeeRate(self.0 / u64::from(rhs))
+    }
+}
+
 impl Div<u64> for FeeRate {
     type Output = Self;
 

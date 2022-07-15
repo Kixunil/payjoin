@@ -26,6 +26,9 @@ pub struct MaybeScriptsSupported {
 pub struct MaybePrevoutsSeen {
     psbt: Psbt,
 }
+pub trait Proposal {
+    fn psbt(&self) -> &bitcoin::util::psbt::PartiallySignedTransaction;
+}
 
 impl UncheckedProposal {
     pub fn from_request(body: impl std::io::Read, query: &str, headers: impl Headers) -> Result<Self, RequestError> {
@@ -170,10 +173,16 @@ impl UnlockedProposal {
         self.psbt.unsigned_tx.input.iter().map(|input| &input.previous_output)
     }
 
-    pub fn assume_locked(self) -> Proposal {
-        Proposal {
+    pub fn assume_locked(self) -> LockedProposal {
+        LockedProposal {
             psbt: self.psbt,
         }
+    }
+}
+
+impl Proposal for UnlockedProposal {
+    fn psbt(&self) -> &bitcoin::util::psbt::PartiallySignedTransaction {
+        &self.psbt
     }
 }
 
@@ -181,7 +190,7 @@ impl UnlockedProposal {
 #[must_use = "The transaction must be broadcasted to prevent abuse"]
 pub struct MustBroadcast(pub bitcoin::Transaction);
 
-pub struct Proposal {
+pub struct LockedProposal {
     psbt: Psbt,
 }
 

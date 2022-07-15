@@ -3,8 +3,8 @@
 mod integration {
     use bitcoind::bitcoincore_rpc::RpcApi;
     use bitcoind::bitcoincore_rpc;
-    use bitcoin::{Amount, util::psbt::serialize::Serialize, hashes::hex::ToHex};
-    use bip78::Uri;
+    use bitcoin::{Amount, Witness, hashes::hex::ToHex, TxIn, TxOut, Transaction, OutPoint, Script, psbt::Input};
+    use bip78::{Uri, UriExt, PjUriExt, receiver::Proposal};
     use bitcoin::util::psbt::PartiallySignedTransaction as Psbt;
     use log::{debug, log_enabled, Level};
     use std::{collections::HashMap, str::FromStr};
@@ -46,6 +46,7 @@ mod integration {
         let amount = Amount::from_btc(1.0).unwrap();
         let pj_uri_string = format!("{}?amount={}&pj=https://example.com", pj_receiver_address.to_qr_uri(), amount.as_btc());
         let pj_uri = Uri::from_str(&pj_uri_string).unwrap();
+        let pj_uri = pj_uri.check_pj_supported().expect("Bad Uri");
 
 
         // ******************************************
@@ -72,7 +73,7 @@ mod integration {
         let psbt = load_psbt_from_base64(psbt.as_bytes()).unwrap();
         debug!("Original psbt: {:#?}", psbt);
         let pj_params = bip78::sender::Params::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
-        let (req, ctx) = pj_uri.create_request(psbt, pj_params).unwrap();
+        let (req, ctx) = pj_uri.create_pj_request(psbt, pj_params).unwrap();
         let headers = MockHeaders::from_vec(&req.body);
 
         // **************************
@@ -80,16 +81,17 @@ mod integration {
         let proposal = bip78::receiver::UncheckedProposal::from_request(req.body.as_slice(), "", headers).unwrap();
         
         // Receive Check 1: Is Broadcastable
-        let tx = proposal.get_transaction_to_check_broadcast();
-        let tx_is_broadcastable = bitcoind.client.test_mempool_accept(&[bitcoin::consensus::encode::serialize(&tx).to_hex()]).unwrap().first().unwrap().allowed;
+        let original_tx = proposal.get_transaction_to_check_broadcast();
+        let tx_is_broadcastable = bitcoind.client.test_mempool_accept(&[bitcoin::consensus::encode::serialize(&original_tx).to_hex()]).unwrap().first().unwrap().allowed;
         assert!(tx_is_broadcastable);
         
         // TODO Receive Check 2, 3, 4, Other OriginalPSBT Checks
 
-        let unlocked = proposal.assume_broadcastability_was_verified();
+        let unlocked = proposal.attest_tested_and_scheduled_broadcast();
 
         // Select receiver payjoin inputs. Lock them.
-        let receiver_coin = receiver.list_unspent(None, None, None, Some(false), None).unwrap().first().unwrap();
+        let receiver_coins = receiver.list_unspent(None, None, None, Some(false), None).unwrap();
+        let receiver_coin = receiver_coins.first().unwrap();
         // TODO Select to avoid Unecessary Input and other Heuristics.
         // This Gist <https://gist.github.com/AdamISZ/4551b947789d3216bacfcb7af25e029e> explains how
 
@@ -97,23 +99,68 @@ mod integration {
         // I'm not sure if we can take a callback as a param or we have to assume downstream does the check
         // let scheduled = proposal.assume_original_broadcast_has_been_scheduled();
 
-        // TODO calculate receiver payjoin outputs given receiver payjoin inputs and original_psbt, 
-        //      add sender additionalfee to our output
-        // TODO construct payjoin psbt
-        //      clone to new, unsigned psbt. FIXME error @ `unsigned_tx_checks()` because it's signed. Probably get psbt from proposal, clone it, then remove the unusable e.g. sigs, original_psbt.outputs and add replacements
-        let mut payjoin_psbt: Psbt = Psbt::from_unsigned_tx(tx).unwrap();
-        //      add receiver inputs
-        let payjoin_input = bitcoin::util::psbt::Input {
-             witness_utxo: Some(bitcoin::blockdata::transaction::TxOut {
+        //  calculate receiver payjoin outputs given receiver payjoin inputs and original_psbt, 
+        //      TODO add sender additionalfee to our output
+        let receiver_input = Input {
+            witness_utxo: Some(TxOut {
+               
                 value: receiver_coin.amount.as_sat(),
-                script_pubkey: receiver_coin.script_pub_key,
+                script_pubkey: receiver_coin.script_pub_key.to_owned(),
             }),
-             ..Default::default() };
+             // + redeem_script = Script::new_v0_p2wpkh
+            // + bip32_derivation
+            // + sighash_type
+            ..Default::default() };
 
-        payjoin_psbt.inputs.push(payjoin_input);
+        // Create new payjoin_psbt from original Tx as in example Creator.
+        let unsigned_original_tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            // TODO create via loop in helper function in receiver
+            input: vec! [
+                TxIn {
+                    previous_output: original_tx.input.first().unwrap().previous_output,
+                    ..Default::default()
+                }
+            ],
+            output: original_tx.output,
+        };
+        let mut payjoin_psbt = Psbt::from_unsigned_tx(unsigned_original_tx).unwrap();
+        
+        // for mut input in payjoin_psbt.inputs {
+        //     input = Input {
+        //         witness_utxo: input.witness_utxo,
+        //         ..Default::default()
+        //     };
+
+        //     // input.redeem_script =
+        //     // input.bip32_derivation =
+        //     // input.sighash_type = 
+        // }
+
+        // Update payjoin_psbt
+        //      add receiver input utxo
+        payjoin_psbt.unsigned_tx.input.push({
+            TxIn {
+                previous_output: OutPoint { txid: receiver_coin.txid, vout: receiver_coin.vout },
+                ..Default::default()
+            }
+        });
+        //      add receiver input redeemScripts, witnessScripts, derivation to map
+        payjoin_psbt.inputs.push(receiver_input);
+
+        //      increase receiver output value in proportion to receiver controbution
+        payjoin_psbt.unsigned_tx.output[0].value += receiver_coin.amount.as_sat();
+// --------------------- above looks good
+        //      identify receiver payment output to increase by our input amount
+        //      TODO identify sender fee output if one exists
+        // let minRelayFeeRate =
+
+        // TODO if additionalfee > Amount::ZERO { receiver, take it }
         //      add new_change, new_change.amount = original_psbt change's + receiver_inputs.amount() - sender additionalfees
 
         // TODO Sign payjoin psbt
+        //println!("{:?}", &payjoin_tx);
         let payjoin_psbt = receiver
         .wallet_process_psbt(&payjoin_psbt.to_string(), None, None, None)
         .unwrap()

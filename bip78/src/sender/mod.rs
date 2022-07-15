@@ -203,7 +203,10 @@ impl Context {
         ensure!(out_stats.contributed_fee <= proposed_psbt_fee - original_fee, PayeeTookContributedFee);
         let original_weight = Weight::manual_from_u64(self.original_psbt.unsigned_tx.weight() as u64);
         let original_fee_rate = original_fee / original_weight;
-        ensure!(out_stats.contributed_fee <= original_fee_rate * self.input_type.expected_input_weight() * (proposal.inputs.len() - self.original_psbt.inputs.len()) as u64, FeeContributionPaysOutputSizeIncrease);
+        // Amount = Weight * u64 * number-of-inputs
+        let inputs_length = proposal.inputs.len() - self.original_psbt.inputs.len();
+        let inputs_weights = self.input_type.expected_input_weight() * inputs_length as u64;
+        ensure!(out_stats.contributed_fee <= original_fee_rate * inputs_weights, FeeContributionPaysOutputSizeIncrease);
         if self.min_fee_rate > FeeRate::ZERO {
             let non_input_output_size =
                 // version
