@@ -76,6 +76,16 @@ mod integration {
         // Receiver receive payjoin proposal, IRL it will be an HTTP request (over ssl or onion)
         let proposal = bip78::receiver::UncheckedProposal::from_request(req.body.as_slice(), "", headers).unwrap();
 
+        // Receive Check 1: Is Broadcastable
+        let original_tx = proposal.get_transaction_to_check_broadcast();
+        let tx_is_broadcastable = bitcoind.client.test_mempool_accept(&[bitcoin::hashes::hex::ToHex::to_hex(&bitcoin::consensus::encode::serialize(&original_tx))]).unwrap().first().unwrap().allowed;
+        assert!(tx_is_broadcastable);
+
+        // In a payment processor, this is where one would defend against the failure case
+        // e.g. `schedule_broadcast(original_tx, Duration::from_min(2));`
+
+        let proposal = proposal.assume_tested_and_scheduled_broadcast();
+
         // TODO
     }
 
