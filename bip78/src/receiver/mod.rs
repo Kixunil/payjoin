@@ -1,9 +1,11 @@
 use bitcoin::{util::psbt::PartiallySignedTransaction as Psbt, AddressType, Script, TxOut};
 
+use crate::params::Params;
 mod error;
 
-use error::InternalRequestError;
 pub use error::RequestError;
+use error::InternalRequestError;
+
 
 pub trait Headers {
     fn get_header(&self, key: &str) -> Option<&str>;
@@ -11,24 +13,28 @@ pub trait Headers {
 
 pub struct UncheckedProposal {
     psbt: Psbt,
+    params: Params,
 }
 
 pub struct MaybeInputsOwned {
     psbt: Psbt,
+    params: Params,
 }
 
 pub struct MaybeMixedInputScripts {
     psbt: Psbt,
+    params: Params,
 }
 
 pub struct MaybeInputsSeen {
     psbt: Psbt,
+    params: Params,
 }
 
 impl UncheckedProposal {
     pub fn from_request(
         body: impl std::io::Read,
-        query: &str,
+        query: Option<&str>,
         headers: impl Headers,
     ) -> Result<Self, RequestError> {
         use crate::bitcoin::consensus::Decodable;
@@ -54,8 +60,16 @@ impl UncheckedProposal {
         let reader = base64::read::DecoderReader::new(&mut limited, base64::STANDARD);
         let psbt = Psbt::consensus_decode(reader).map_err(InternalRequestError::Decode)?;
 
+        let params = match query {
+            Some(query) => Params::parse(query).map_err(InternalRequestError::SenderParams)?,
+            None => Params::default(),
+        };
+
+        // TODO check params are valid for psbt
+
         Ok(UncheckedProposal {
             psbt,
+            params,
         })
     }
 
@@ -75,7 +89,10 @@ impl UncheckedProposal {
     ///
     /// Call this after checking downstream.
     pub fn assume_tested_and_scheduled_broadcast(self) -> MaybeInputsOwned {
-        MaybeInputsOwned { psbt: self.psbt }
+        MaybeInputsOwned {
+            psbt: self.psbt,
+            params: self.params,
+        }
     }
 
     /// Call this method if the only way to initiate a PayJoin with this receiver
@@ -84,7 +101,10 @@ impl UncheckedProposal {
     /// So-called "non-interactive" receivers, like payment processors, that allow arbitrary requests are otherwise vulnerable to probing attacks.
     /// Those receivers call `get_transaction_to_check_broadcast()` and `attest_tested_and_scheduled_broadcast()` after making those checks downstream.
     pub fn assume_interactive_receive_endpoint(self) -> MaybeInputsOwned {
-        MaybeInputsOwned { psbt: self.psbt }
+        MaybeInputsOwned {
+            psbt: self.psbt,
+            params: self.params,
+        }
     }
 }
 
@@ -100,7 +120,10 @@ impl MaybeInputsOwned {
     ///
     /// Call this after checking downstream.
     pub fn assume_inputs_not_owned(self) -> MaybeMixedInputScripts {
-        MaybeMixedInputScripts { psbt: self.psbt }
+        MaybeMixedInputScripts {
+            psbt: self.psbt,
+            params: self.params,
+        }
     }
 }
 
@@ -119,7 +142,10 @@ impl MaybeMixedInputScripts {
     /// Note: mixed spends do not necessarily indicate distinct wallet fingerprints.
     /// This check is intended to prevent some types of wallet fingerprinting.
     pub fn assume_no_mixed_input_scripts(self) -> MaybeInputsSeen {
-        MaybeInputsSeen { psbt: self.psbt }
+        MaybeInputsSeen {
+            psbt: self.psbt,
+            params: self.params,
+        }
     }
 }
 
@@ -224,6 +250,10 @@ pub mod test {
 
     #[cfg(test)]
     fn get_proposal_from_test_vector() -> Result<UncheckedProposal, RequestError> {
+        use std::str::FromStr;
+
+        use bitcoin::Amount;
+
         use super::test_util::MockHeaders;
 
         // OriginalPSBT Test Vector from BIP
@@ -234,7 +264,7 @@ pub mod test {
 
         let body = original_psbt.as_bytes();
         let headers =  MockHeaders::from_vec(body);
-        UncheckedProposal::from_request(body, "", headers)
+        UncheckedProposal::from_request(body, Some("?maxadditionalfeecontribution=0.00000182?additionalfeeoutputindex=0"), headers)
     }
 
     #[test]
