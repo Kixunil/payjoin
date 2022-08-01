@@ -18,13 +18,13 @@ sender = []
 receiver = ["rand"]
 
 [dependencies]
-bitcoin = "0.27.1"
+bitcoin = "0.28.1"
 base64 = "0.13.0"
 rand = { version = "0.8.4", optional = true }
-bip21 = "0.1.1"
+bip21 = { git = "https://github.com/DanGould/bip21.git", rev = "f74dd0f" }
 url = "2.2.2"
 
 [dev-dependencies]
-bitcoind = { version = "0.18.0", features = ["0_21_1"] }
+bitcoind = { version = "0.26.1", features = ["0_21_1"] }
 env_logger = "0.9.0"
 log = "0.4.14"
