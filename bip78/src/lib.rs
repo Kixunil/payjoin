@@ -31,6 +31,8 @@ mod uri;
 pub(crate) mod weight;
 #[cfg(any(feature = "sender", feature = "receiver"))]
 pub(crate) mod fee_rate;
+#[cfg(any(feature = "receiver"))]
+pub(crate) mod params;
 #[cfg(any(feature = "sender", feature = "receiver"))]
 pub(crate) mod psbt;
 

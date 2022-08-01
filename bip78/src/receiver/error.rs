@@ -8,6 +8,7 @@ pub(crate) enum InternalRequestError {
     InvalidContentType(String),
     InvalidContentLength(std::num::ParseIntError),
     ContentLengthTooLarge(u64),
+    SenderParams(crate::params::ParamsError)
 }
 
 impl From<InternalRequestError> for RequestError {

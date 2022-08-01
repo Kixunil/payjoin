@@ -57,7 +57,7 @@ fn main() {
         .psbt;
     let psbt = load_psbt_from_base64(psbt.as_bytes()).unwrap();
     println!("Original psbt: {:#?}", psbt);
-    let pj_params = bip78::sender::Params::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
+    let pj_params = bip78::sender::Configuration::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
     let (req, ctx) = link.create_pj_request(psbt, pj_params).unwrap();
     let response = reqwest::blocking::Client::new()
         .post(req.url)

@@ -10,6 +10,7 @@ mod integration {
     use log::{debug, log_enabled, Level};
     use std::collections::HashMap;
     use bip78::receiver::Headers;
+    use bip78::receiver::test_util::MockHeaders;
 
     #[test]
     fn integration_test() {
@@ -68,33 +69,15 @@ mod integration {
             .psbt;
         let psbt = load_psbt_from_base64(psbt.as_bytes()).unwrap();
         debug!("Original psbt: {:#?}", psbt);
-        let pj_params = bip78::sender::Params::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
+        let pj_params = bip78::sender::Configuration::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
         let (req, ctx) = pj_uri.create_request(psbt, pj_params).unwrap();
-        let headers = HeaderMock::from_vec(&req.body);
+        let headers = MockHeaders::from_vec(&req.body);
 
         // Receiver receive payjoin proposal, IRL it will be an HTTP request (over ssl or onion)
         let proposal = bip78::receiver::UncheckedProposal::from_request(req.body.as_slice(), "", headers).unwrap();
 
         // TODO
     }
-
-    struct HeaderMock(HashMap<String, String>);
-
-    impl Headers for HeaderMock {
-        fn get_header(&self, key: &str) -> Option<&str> {
-            self.0.get(key).map(|e| e.as_str())
-        }
-    }
-
-    impl HeaderMock {
-        fn from_vec(body: &[u8]) -> HeaderMock {
-            let mut h = HashMap::new();
-            h.insert("content-type".to_string(), "text/plain".to_string());
-            h.insert("content-length".to_string(), body.len().to_string());
-            HeaderMock(h)
-        }
-    }
-
 
     fn load_psbt_from_base64(mut input: impl std::io::Read) -> Result<Psbt, bip78::bitcoin::consensus::encode::Error> {
         use bip78::bitcoin::consensus::Decodable;
