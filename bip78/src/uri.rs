@@ -40,7 +40,7 @@ pub trait PjUriExt: sealed::UriExt {
     fn create_pj_request(
         self,
         psbt: bitcoin::util::psbt::PartiallySignedTransaction,
-        params: sender::Params,
+        params: sender::Configuration,
     ) -> Result<(sender::Request, sender::Context), sender::CreateRequestError>; 
 }
 
@@ -53,7 +53,7 @@ impl<'a> PjUriExt for PjUri<'a> {
     fn create_pj_request(
         self,
         psbt: bitcoin::util::psbt::PartiallySignedTransaction,
-        params: sender::Params,
+        params: sender::Configuration,
     ) -> Result<(sender::Request, sender::Context), sender::CreateRequestError> {
         sender::from_psbt_and_uri(psbt.try_into().map_err(sender::InternalCreateRequestError::InconsistentOriginalPsbt)?, self, params)
     }

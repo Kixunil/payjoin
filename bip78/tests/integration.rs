@@ -69,7 +69,7 @@ mod integration {
             .psbt;
         let psbt = load_psbt_from_base64(psbt.as_bytes()).unwrap();
         debug!("Original psbt: {:#?}", psbt);
-        let pj_params = bip78::sender::Params::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
+        let pj_params = bip78::sender::Configuration::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
         let (req, ctx) = pj_uri.create_request(psbt, pj_params).unwrap();
         let headers = MockHeaders::from_vec(&req.body);
 

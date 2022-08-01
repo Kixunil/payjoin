@@ -36,14 +36,14 @@ type InternalResult<T> = Result<T, InternalValidationError>;
 /// Builder for sender-side payjoin parameters
 ///
 /// These parameters define how client wants to handle PayJoin.
-pub struct Params {
+pub struct Configuration {
     disable_output_substitution: bool,
     fee_contribution: Option<(bitcoin::Amount, Option<usize>)>,
     clamp_fee_contribution: bool,
     min_fee_rate: FeeRate,
 }
 
-impl Params {
+impl Configuration {
     /// Offer the receiver contribution to pay for his input.
     ///
     /// These parameters will allow the receiver to take `max_fee_contribution` from given change
@@ -52,7 +52,7 @@ impl Params {
     /// `change_index` specifies which output can be used to pay fee. I `None` is provided, then
     /// the output is auto-detected unless the supplied transaction has more than two outputs.
     pub fn with_fee_contribution(max_fee_contribution: bitcoin::Amount, change_index: Option<usize>) -> Self {
-        Params {
+        Configuration {
             disable_output_substitution: false,
             fee_contribution: Some((max_fee_contribution, change_index)),
             clamp_fee_contribution: false,
@@ -65,7 +65,7 @@ impl Params {
     /// While it's generally better to offer some contribution some users may wish not to.
     /// This function disables contribution.
     pub fn non_incentivizing() -> Self {
-        Params {
+        Configuration {
             disable_output_substitution: false,
             fee_contribution: None,
             clamp_fee_contribution: false,
@@ -432,7 +432,7 @@ fn check_change_index(psbt: &Psbt, payee: &Script, fee: bitcoin::Amount, index: 
     Ok((check_fee_output_amount(output, fee, clamp_fee_contribution)?, index))
 }
 
-fn determine_fee_contribution(psbt: &Psbt, payee: &Script, params: &Params) -> Result<Option<(bitcoin::Amount, usize)>, InternalCreateRequestError> {
+fn determine_fee_contribution(psbt: &Psbt, payee: &Script, params: &Configuration) -> Result<Option<(bitcoin::Amount, usize)>, InternalCreateRequestError> {
     Ok(match params.fee_contribution {
         Some((fee, None)) => find_change_index(psbt, payee, fee, params.clamp_fee_contribution)?,
         Some((fee, Some(index))) => Some(check_change_index(psbt, payee, fee, index, params.clamp_fee_contribution)?),
@@ -475,7 +475,7 @@ fn serialize_psbt(psbt: &Psbt) -> Vec<u8> {
         .expect("Vec doesn't return errors in its write implementation")
 }
 
-pub(crate) fn from_psbt_and_uri(mut psbt: Psbt, uri: crate::uri::PjUri<'_>, params: Params) -> Result<(Request, Context), CreateRequestError> {
+pub(crate) fn from_psbt_and_uri(mut psbt: Psbt, uri: crate::uri::PjUri<'_>, params: Configuration) -> Result<(Request, Context), CreateRequestError> {
     psbt
         .validate_input_utxos(true)
         .map_err(InternalCreateRequestError::InvalidOriginalInput)?;
