@@ -102,6 +102,13 @@ mod integration {
 
         let proposal = proposal.assume_no_mixed_input_scripts();
 
+        // Receive Check 4: receiver has not seen proposal inputs before
+        for outpoint in proposal.iter_input_outpoints() {
+            assert!(receiver.get_transaction(&outpoint.txid, Some(true)).is_err());
+        }
+
+        let proposal = proposal.assume_no_inputs_seen_before();
+
         // TODO
     }
 
