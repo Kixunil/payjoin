@@ -10,6 +10,7 @@ mod integration {
     use log::{debug, log_enabled, Level};
     use std::collections::HashMap;
     use bip78::receiver::Headers;
+    use bip78::receiver::test_util::MockHeaders;
 
     #[test]
     fn integration_test() {
@@ -70,31 +71,46 @@ mod integration {
         debug!("Original psbt: {:#?}", psbt);
         let pj_params = bip78::sender::Params::with_fee_contribution(bip78::bitcoin::Amount::from_sat(10000), None);
         let (req, ctx) = pj_uri.create_request(psbt, pj_params).unwrap();
-        let headers = HeaderMock::from_vec(&req.body);
+        let headers = MockHeaders::from_vec(&req.body);
 
         // Receiver receive payjoin proposal, IRL it will be an HTTP request (over ssl or onion)
         let proposal = bip78::receiver::UncheckedProposal::from_request(req.body.as_slice(), "", headers).unwrap();
 
+        // Receive Check 1: Is Broadcastable
+        let original_tx = proposal.get_transaction_to_check_broadcast();
+        let tx_is_broadcastable = bitcoind.client.test_mempool_accept(&[bitcoin::hashes::hex::ToHex::to_hex(&bitcoin::consensus::encode::serialize(&original_tx))]).unwrap().first().unwrap().allowed;
+        assert!(tx_is_broadcastable);
+
+        // In a payment processor, this is where one would defend against the failure case
+        // e.g. `schedule_broadcast(original_tx, Duration::from_min(2));`
+
+        let proposal = proposal.assume_tested_and_scheduled_broadcast();
+
+        // Receive Check 2: receiver can't sign for proposal inputs
+        for script_i in proposal.iter_input_script_pubkeys() {
+            let address = bitcoin::Address::from_script(script_i.unwrap(), bitcoin::Network::Regtest).unwrap();
+            let address_result = receiver.get_address_info(&address).unwrap();
+            assert!(!address_result.is_mine.unwrap());
+        }
+
+        let proposal = proposal.assume_no_inputs_owned();
+
+        // Receive Check 3: receiver does not allow mixed input types
+        for input_type in proposal.iter_input_script_types() {
+            assert!(input_type.unwrap() == bitcoin::AddressType::P2wpkh);
+        }
+
+        let proposal = proposal.assume_no_mixed_input_scripts();
+
+        // Receive Check 4: receiver has not seen proposal inputs before
+        for outpoint in proposal.iter_input_outpoints() {
+            assert!(receiver.get_transaction(&outpoint.txid, Some(true)).is_err());
+        }
+
+        let proposal = proposal.assume_no_inputs_seen_before();
+
         // TODO
     }
-
-    struct HeaderMock(HashMap<String, String>);
-
-    impl Headers for HeaderMock {
-        fn get_header(&self, key: &str) -> Option<&str> {
-            self.0.get(key).map(|e| e.as_str())
-        }
-    }
-
-    impl HeaderMock {
-        fn from_vec(body: &[u8]) -> HeaderMock {
-            let mut h = HashMap::new();
-            h.insert("content-type".to_string(), "text/plain".to_string());
-            h.insert("content-length".to_string(), body.len().to_string());
-            HeaderMock(h)
-        }
-    }
-
 
     fn load_psbt_from_base64(mut input: impl std::io::Read) -> Result<Psbt, bip78::bitcoin::consensus::encode::Error> {
         use bip78::bitcoin::consensus::Decodable;

@@ -65,6 +65,21 @@ impl Psbt {
             .map(|(index, input)| input.validate_utxo(treat_missing_as_error).map_err(|error| PsbtInputsError { index, error, }))
             .collect()
     }
+
+    // from unreleased rust-bitcoin 5afb0eaf40642bfda87f2681a650a919d43163a4
+    pub fn iter_funding_utxos(&self) -> impl Iterator<Item = Result<&TxOut, PrevTxOutError>> {
+        assert_eq!(self.0.inputs.len(), self.0.global.unsigned_tx.input.len());
+        self.0.global.unsigned_tx.input.iter().zip(&self.0.inputs).map(|(tx_input, psbt_input)| {
+            match (&psbt_input.witness_utxo, &psbt_input.non_witness_utxo) {
+                (Some(witness_utxo), _) => Ok(witness_utxo),
+                (None, Some(non_witness_utxo)) => {
+                    let vout = tx_input.previous_output.vout;
+                    non_witness_utxo.output.get(vout as usize).ok_or(PrevTxOutError::IndexOutOfBounds { output_count:1, index: vout })
+                },
+                (None, None) => Err(PrevTxOutError::MissingUtxoInformation),
+            }
+        })
+    }
 }
 
 impl From<Psbt> for UncheckedPsbt {
