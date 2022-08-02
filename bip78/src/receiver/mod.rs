@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
-use bitcoin::{util::psbt::PartiallySignedTransaction as UncheckedPsbt, AddressType, Script};
-use crate::psbt::Psbt;
+use bitcoin::{util::psbt::PartiallySignedTransaction as UncheckedPsbt, AddressType, Script, Address};
+use crate::{psbt::Psbt, input_type::InputTypeError};
 mod error;
 
 use error::InternalRequestError;
@@ -117,8 +117,26 @@ impl MaybeMixedInputScripts {
     /// type.
     ///
     /// Check downstream before proceeding.
-    pub fn iter_input_script_types(&self) -> Vec<Result<&AddressType, RequestError>> {
-        todo!() // return Iterator<Item = Result<&AddressType, RequestError>>
+    pub fn iter_input_script_types(&self) -> impl '_ + Iterator<Item = Result<AddressType, RequestError>> {
+        use crate::input_type::{InputType, SegWitV0Type};
+
+        self.psbt
+            .input_pairs()
+            .map(|pair| {
+                match pair.previous_txout() {
+                    Ok(txo) => match InputType::from_spent_input(txo, pair.psbtin) {
+                        Ok(InputType::P2Pkh) => Ok(AddressType::P2pkh),
+                        Ok(InputType::P2Sh) 
+                        | Ok(InputType::SegWitV0 { ty: SegWitV0Type::Pubkey, nested: true, }) => Ok(AddressType::P2sh),
+                        Ok(InputType::SegWitV0 { ty: SegWitV0Type::Pubkey, nested: false }) => Ok(AddressType::P2wpkh),
+                        Ok(InputType::SegWitV0 { ty: SegWitV0Type::Script, nested: false, }) => Ok(AddressType::P2wsh),
+                        // Ok(InputType::Taproot) => Ok(AddressType::Taproot) bitcoin v0.28.1
+                        Ok(_) => Err(InternalRequestError::InputType(InputTypeError::UnknownInputType).into()),
+                        Err(e) => Err(InternalRequestError::InputType(e).into()),
+                    }
+                    Err(e) => return Err(InternalRequestError::PsbtInputs(e).into())
+                }
+            })
     }
 
     /// Verify the original transaction did not have mixed input types

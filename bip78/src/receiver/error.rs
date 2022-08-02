@@ -10,6 +10,7 @@ pub(crate) enum InternalRequestError {
     ContentLengthTooLarge(u64),
     Psbt(crate::psbt::InconsistentPsbt),
     PsbtInputs(crate::psbt::PrevTxOutError),
+    InputType(crate::input_type::InputTypeError)
 }
 
 impl From<InternalRequestError> for RequestError {
