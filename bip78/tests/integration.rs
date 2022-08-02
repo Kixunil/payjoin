@@ -86,6 +86,15 @@ mod integration {
 
         let proposal = proposal.assume_tested_and_scheduled_broadcast();
 
+        // Receive Check 2: receiver can't sign for proposal inputs
+        for script_i in proposal.iter_input_script_pubkeys() {
+            let address = bitcoin::Address::from_script(script_i.unwrap(), bitcoin::Network::Regtest).unwrap();
+            let address_result = receiver.get_address_info(&address).unwrap();
+            assert!(!address_result.is_mine.unwrap());
+        }
+
+        let proposal = proposal.assume_no_inputs_owned();
+
         // TODO
     }
 
