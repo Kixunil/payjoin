@@ -95,6 +95,13 @@ mod integration {
 
         let proposal = proposal.assume_no_inputs_owned();
 
+        // Receive Check 3: receiver does not allow mixed input types
+        for input_type in proposal.iter_input_script_types() {
+            assert!(input_type.unwrap() == bitcoin::AddressType::P2wpkh);
+        }
+
+        let proposal = proposal.assume_no_mixed_input_scripts();
+
         // TODO
     }
 
