@@ -1,5 +1,7 @@
-use bitcoin::{util::psbt::PartiallySignedTransaction as Psbt, AddressType, Script, TxOut};
+use std::convert::TryFrom;
 
+use bitcoin::{util::psbt::PartiallySignedTransaction as UncheckedPsbt, AddressType, Script};
+use crate::psbt::Psbt;
 mod error;
 
 use error::InternalRequestError;
@@ -52,7 +54,8 @@ impl UncheckedProposal {
         // enforce the limit
         let mut limited = body.take(content_length);
         let reader = base64::read::DecoderReader::new(&mut limited, base64::STANDARD);
-        let psbt = Psbt::consensus_decode(reader).map_err(InternalRequestError::Decode)?;
+        let psbt = UncheckedPsbt::consensus_decode(reader).map_err(InternalRequestError::Decode)?;
+        let psbt = Psbt::try_from(psbt).map_err(InternalRequestError::Psbt)?;
 
         Ok(UncheckedProposal {
             psbt,
@@ -91,15 +94,20 @@ impl UncheckedProposal {
 impl MaybeInputsOwned {
     /// The receiver should not be able to sign for any of these Original PSBT inputs.
     /// Check that none of them are owned by the receiver downstream before proceeding.
-    pub fn iter_input_script_pubkeys(&self) -> Vec<Result<&Script, RequestError>> {
-        todo!() // return impl '_ + Iterator<Item = Result<&Script, RequestError>>
+    pub fn iter_input_script_pubkeys(&self) -> impl Iterator<Item = Result<&Script, RequestError>> {
+        self.psbt
+            .iter_funding_utxos()
+            .map(|res| match res {
+                Ok(txo) => Ok(&txo.script_pubkey),
+                Err(e) => Err(InternalRequestError::PsbtInputs(e).into()),
+            })
     }
 
     /// If the sender included inputs that the receiver could sign for in the original PSBT,
     /// the receiver must either return error original-psbt-rejected or make sure they do not sign those inputs in the payjoin proposal.
     ///
     /// Call this after checking downstream.
-    pub fn assume_inputs_not_owned(self) -> MaybeMixedInputScripts {
+    pub fn assume_no_inputs_owned(self) -> MaybeMixedInputScripts {
         MaybeMixedInputScripts { psbt: self.psbt }
     }
 }
@@ -248,7 +256,7 @@ pub mod test {
         let proposal = get_proposal_from_test_vector().unwrap();
         let unlocked = proposal
             .assume_tested_and_scheduled_broadcast()
-            .assume_inputs_not_owned()
+            .assume_no_inputs_owned()
             .assume_no_mixed_input_scripts()
             .assume_no_inputs_seen_before();
     }

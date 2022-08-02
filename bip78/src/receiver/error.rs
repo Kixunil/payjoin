@@ -8,6 +8,8 @@ pub(crate) enum InternalRequestError {
     InvalidContentType(String),
     InvalidContentLength(std::num::ParseIntError),
     ContentLengthTooLarge(u64),
+    Psbt(crate::psbt::InconsistentPsbt),
+    PsbtInputs(crate::psbt::PrevTxOutError),
 }
 
 impl From<InternalRequestError> for RequestError {
